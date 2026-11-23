@@ -1,0 +1,17 @@
+version: 1
+mode: propose
+
+languages:
+  javascript:
+    enabled: true
+    framework: vitest
+    workingDirectory: .
+    installCommand: npm ci --ignore-scripts --no-audit --no-fund
+    testCommand: npx vitest run --coverage
+    coverageFile: coverage/lcov.info
+    coverageFormat: lcov
+    sourceGlobs:
+      - "src/**/*.ts"
+    testPathPatterns:
+      - "tests/{name}.test.ts"
+    generatedSuffix: ".unit-agent"
