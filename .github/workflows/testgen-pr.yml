@@ -16,7 +16,7 @@ jobs:
     if: >
       github.actor != 'github-actions[bot]' &&
       (github.event.action != 'labeled' || github.event.label.name == 'agent:testgen' || github.event.label.name == 'unit-agent:run')
-    uses: ./.github/workflows/_agent-testgen-reusable.yml
+    uses: vivekthumati123-oss/checme/.github/workflows/_agent-testgen-reusable.yml@main
     permissions:
       contents: write
       pull-requests: write
