@@ -1,0 +1,126 @@
+name: unit-agent-validate
+on:
+  workflow_call:
+    inputs:
+      attempt:
+        type: number
+        required: true
+      input-artifact:
+        type: string
+        required: true
+      input-dir:
+        type: string
+        required: true
+      input-file:
+        type: string
+        required: true
+      snapshot-artifact:
+        type: string
+        required: true
+      output-artifact:
+        type: string
+        required: true
+      languages:
+        type: string
+        required: true
+      toolchains:
+        type: string
+        required: true
+      config-path:
+        type: string
+        default: ".unit-agent.yml"
+      agent-node-version:
+        type: string
+        default: "22"
+    outputs:
+      needs_repair:
+        value: ${{ jobs.validate.outputs.needs_repair }}
+
+permissions: {}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      needs_repair: ${{ steps.run.outputs.needs_repair }}
+    env:
+      UA_CONFIG: ${{ inputs.config-path }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Clear untrusted .unit-agent directory
+        shell: bash
+        run: rm -rf .unit-agent
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "${{ inputs.agent-node-version }}"
+      - name: Export UA_NODE
+        shell: bash
+        run: echo "UA_NODE=$(node -p 'process.execPath')" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ua-agent-dist
+          path: ${{ runner.temp }}/unit-agent-dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: ua-prepare
+          path: .unit-agent/prepare
+      - uses: actions/download-artifact@v4
+        with:
+          name: "${{ inputs.input-artifact }}"
+          path: ".unit-agent/${{ inputs.input-dir }}"
+      - uses: actions/setup-node@v4
+        if: inputs.languages != '' && inputs.toolchains != '' && contains(fromJSON(inputs.languages), 'javascript') && fromJSON(inputs.toolchains).node.source != 'runner-default'
+        with:
+          node-version: ${{ fromJSON(inputs.toolchains).node.version }}
+          node-version-file: ${{ fromJSON(inputs.toolchains).node.file }}
+      - uses: actions/setup-python@v5
+        if: inputs.languages != '' && inputs.toolchains != '' && contains(fromJSON(inputs.languages), 'python') && fromJSON(inputs.toolchains).python.source != 'runner-default'
+        with:
+          python-version: ${{ fromJSON(inputs.toolchains).python.version }}
+          python-version-file: ${{ fromJSON(inputs.toolchains).python.file }}
+      - uses: actions/setup-java@v4
+        if: inputs.languages != '' && inputs.toolchains != '' && contains(fromJSON(inputs.languages), 'java') && fromJSON(inputs.toolchains).java.source != 'runner-default'
+        with:
+          distribution: ${{ fromJSON(inputs.toolchains).java.distribution }}
+          java-version: ${{ fromJSON(inputs.toolchains).java.version }}
+          java-version-file: ${{ fromJSON(inputs.toolchains).java.file }}
+      - id: install
+        shell: bash
+        run: '"${UA_NODE:-node}" --throw-deprecation "$RUNNER_TEMP/unit-agent-dist/cli.js" install'
+      - id: static
+        if: steps.install.outcome == 'success' && steps.install.outputs.status == 'ok'
+        shell: bash
+        env:
+          UA_ATTEMPT: ${{ inputs.attempt }}
+          UA_INPUT_FILE: ${{ inputs.input-file }}
+        run: '"${UA_NODE:-node}" --throw-deprecation "$RUNNER_TEMP/unit-agent-dist/cli.js" validate --attempt "$UA_ATTEMPT" --phase static --input ".unit-agent/$UA_INPUT_FILE"'
+      - uses: actions/upload-artifact@v4
+        if: steps.static.outcome == 'success' && steps.static.outputs.status == 'ok'
+        with:
+          name: ${{ inputs.snapshot-artifact }}
+          path: .unit-agent/snapshot${{ inputs.attempt }}
+          retention-days: 7
+          overwrite: true
+          if-no-files-found: warn
+      - id: run
+        if: steps.static.outcome == 'success' && steps.static.outputs.status == 'ok'
+        shell: bash
+        env:
+          UA_ATTEMPT: ${{ inputs.attempt }}
+          UA_INPUT_FILE: ${{ inputs.input-file }}
+        run: '"${UA_NODE:-node}" --throw-deprecation "$RUNNER_TEMP/unit-agent-dist/cli.js" validate --attempt "$UA_ATTEMPT" --phase run --input ".unit-agent/$UA_INPUT_FILE"'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ inputs.output-artifact }}
+          path: .unit-agent/validate${{ inputs.attempt }}
+          retention-days: 7
+          overwrite: true
+
